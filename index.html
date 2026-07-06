@@ -35,7 +35,7 @@
 <div class="app">
 <aside class="side"><div class="brand">🏆 <span>THI ĐUA SIÊU THỊ</span><span class="badge">V5 FIXED</span></div><div class="nav" id="nav"></div></aside>
 <main class="main"><div class="top"><div class="title">Dashboard thi đua vận hành thật <span class="muted">| Import xong tự tính lại</span></div><div class="actions no-print"><select id="monthSelect" class="btn" onchange="renderAll()"><option value="2026-07">07/2026</option></select><select id="chainFilter" class="btn" onchange="STATE.scopeChain=this.value;STATE.scopeStore='all';renderAll()"><option value="all">Tất cả chuỗi</option><option value="Topzone">Topzone</option><option value="TGDĐ">TGDĐ</option></select><select id="storeFilter" class="btn" onchange="STATE.scopeStore=this.value;renderAll()"><option value="all">Tất cả siêu thị</option></select><button class="btn" onclick="STATE.dayOverride=null;renderAll()">Auto ngày</button><button class="btn blue" onclick="renderAll();toast('Đã tính lại dữ liệu')">↻ Tính lại</button><button class="btn primary" onclick="openExport()">📸 Xuất ảnh</button></div></div><div class="content">
-<section id="totalComp" class="screen active"></section><section id="dashboard" class="screen"></section><section id="pushTZ" class="screen"></section><section id="pushTGDD" class="screen"></section><section id="rankStore" class="screen"></section><section id="storeComp" class="screen"></section><section id="rankEmp" class="screen"></section><section id="rankEmpFull" class="screen"></section><section id="detailEmp" class="screen"></section><section id="income" class="screen"></section><section id="scoreRule" class="screen"></section><section id="ai" class="screen"></section><section id="import" class="screen"></section>
+<section id="totalComp" class="screen active"></section><section id="dashboard" class="screen"></section><section id="pushTZ" class="screen"></section><section id="pushTGDD" class="screen"></section><section id="rankStore" class="screen"></section><section id="storeComp" class="screen"></section><section id="rankEmp" class="screen"></section><section id="rankEmpFull" class="screen"></section><section id="detailEmp" class="screen"></section><section id="income" class="screen"></section><section id="scoreRule" class="screen"></section><section id="ai" class="screen"></section><section id="import" class="screen"></section><section id="compare" class="screen"></section><section id="settings" class="screen"></section>
 </div></main></div>
 <div id="exportModal" class="modal"><div class="box"><h2>📸 Xuất báo cáo</h2><p class="muted">Chọn các tab cần xuất. Tool sẽ tải từng ảnh PNG.</p><button class="btn blue" onclick="selectExport(true)">Chọn tất cả</button> <button class="btn" onclick="selectExport(false)">Bỏ chọn</button><div id="exportChecks" class="checkgrid"></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn" onclick="closeExport()">Đóng</button><button class="btn primary" onclick="exportSelected()">Xuất ảnh</button></div></div></div><div class="toast" id="toast"></div>
 <script>
@@ -357,6 +357,101 @@ async function exportOneScreen(id){show(id);await new Promise(r=>setTimeout(r,25
 
 function renderAll(){rebuild(); updateScopeOptions(); renderNav(); renderTotalComp(); renderDashboard(); document.getElementById('pushTZ').innerHTML=push('Topzone'); document.getElementById('pushTGDD').innerHTML=push('TGDĐ'); renderStore(); renderStoreComp(); renderRankEmp(); renderFull(); renderDetail(); renderIncome(); renderRule(); renderAI(); renderImport()}
 
+
+
+/* ================= V6.2 HISTORY + ROLE SETTINGS PATCH =================
+   - Lưu dữ liệu theo tháng: 07/2026, 08/2026...
+   - Mỗi lần bấm Lưu & chạy lại sẽ tự lưu snapshot theo ngày dữ liệu.
+   - Tab So sánh data: so với hôm qua và cùng kỳ tháng trước.
+   - Tab Cài đặt: quyền Admin/QL, ẩn/hiện tab theo quyền.
+   - Mật khẩu đăng nhập được ẩn trên giao diện; Admin có thể đổi khi cần.
+============================================================ */
+(function initV62Patch(){
+  try{
+    if(!NAV.find(x=>x[0]==='compare')) NAV.push(['compare','📈 So sánh data']);
+    if(!NAV.find(x=>x[0]==='settings')) NAV.push(['settings','⚙️ Cài đặt']);
+  }catch(e){}
+})();
+const TD_DB_KEY='td_v6_monthly_history';
+const TD_ROLE_KEY='td_v6_role';
+const TD_ROLE_CFG='td_v6_role_config';
+const TD_PIN_HASH_KEY='td_v6_pin_hash';
+const DEFAULT_PIN_HASH={admin:1076444563, ql:1355957634};
+function hashPin(pin){
+  let h=2166136261;
+  for(let i=0;i<String(pin||'').length;i++){h^=String(pin).charCodeAt(i); h=Math.imul(h,16777619)>>>0;}
+  return h>>>0;
+}
+function getPinHash(){
+  try{return {...DEFAULT_PIN_HASH,...(JSON.parse(localStorage.getItem(TD_PIN_HASH_KEY))||{})}}catch(e){return {...DEFAULT_PIN_HASH}}
+}
+function setPinHash(o){localStorage.setItem(TD_PIN_HASH_KEY,JSON.stringify(o))}
+const ROLE_LABEL={admin:'Admin', ql:'QLY'};
+const DEFAULT_ROLE_CFG={
+  admin:['totalComp','dashboard','pushTZ','pushTGDD','rankStore','storeComp','rankEmp','rankEmpFull','detailEmp','income','scoreRule','ai','import','compare','settings'],
+  ql:['totalComp','dashboard','storeComp','rankEmp','detailEmp','ai','compare','settings']
+};
+function getRole(){return localStorage.getItem(TD_ROLE_KEY)||'admin'}
+function getRoleCfg(){try{return {...DEFAULT_ROLE_CFG,...(JSON.parse(localStorage.getItem(TD_ROLE_CFG))||{})}}catch(e){return {...DEFAULT_ROLE_CFG}}}
+function setRoleCfg(cfg){localStorage.setItem(TD_ROLE_CFG,JSON.stringify(cfg))}
+function visibleNav(){let role=getRole(), cfg=getRoleCfg(); let allowed=cfg[role]||DEFAULT_ROLE_CFG[role]||DEFAULT_ROLE_CFG.ql; return NAV.filter(n=>allowed.includes(n[0])||n[0]==='settings')}
+function getMonthKey(){return document.getElementById('monthSelect')?.value || '2026-07'}
+function getDB(){try{return JSON.parse(localStorage.getItem(TD_DB_KEY))||{months:{}}}catch(e){return {months:{}}}}
+function setDB(db){localStorage.setItem(TD_DB_KEY,JSON.stringify(db))}
+function ensureMonth(db,month){db.months=db.months||{}; if(!db.months[month]) db.months[month]={current:null,snapshots:{},createdAt:new Date().toISOString(),updatedAt:null}; return db.months[month]}
+function oldRawFallback(){try{return JSON.parse(localStorage.getItem('td_v5_fixed'))||{...DEFAULT}}catch(e){return {...DEFAULT}}}
+// Override raw/saveRaw to support monthly data versions.
+raw=function(){let db=getDB(), month=getMonthKey(); let m=ensureMonth(db,month); if(!m.current){m.current=oldRawFallback(); m.updatedAt=new Date().toISOString(); setDB(db)} return m.current||{...DEFAULT}}
+saveRaw=function(o){let db=getDB(), month=getMonthKey(); let m=ensureMonth(db,month); m.current=o; m.updatedAt=new Date().toISOString(); setDB(db); localStorage.setItem('td_v5_fixed',JSON.stringify(o))}
+function currentSummaryFromData(){
+  let day=dayInfo();
+  return {month:getMonthKey(), day:day.d, savedAt:new Date().toISOString(), employees:(DATA.employees||[]).map(e=>({
+    id:e.id,name:e.name,chain:e.chain,store:e.store,dtqd:e.dt?.dtqd||0,dtlk:e.dt?.dtlk||0,effPct:e.effPct||0,dtForecast:e.dtForecast??e.dtPct??0,total:e.total||0,achievedProjected:e.achievedProjected??e.achieved??0,subjects:(e.subjects||[]).map(s=>({item:s.item,actual:s.actual||0,targetNV:s.targetNV||0,empHT:s.empHT||0,forecastEmp:s.forecastEmp??s.empHT??0,rank:s.rank||0}))
+  })), stores:(DATA.stores||[]) }
+}
+function saveDailySnapshot(){let db=getDB(), month=getMonthKey(); let m=ensureMonth(db,month); let sum=currentSummaryFromData(); m.snapshots[String(sum.day).padStart(2,'0')]=sum; m.updatedAt=new Date().toISOString(); setDB(db); return sum}
+function monthShift(month,delta){let [y,m]=month.split('-').map(Number); m+=delta; while(m<1){m+=12;y--} while(m>12){m-=12;y++} return `${y}-${String(m).padStart(2,'0')}`}
+function bestSnapshot(month,day){let db=getDB(), m=db.months?.[month]; if(!m||!m.snapshots)return null; let keys=Object.keys(m.snapshots).map(Number).filter(x=>x<=day).sort((a,b)=>b-a); if(!keys.length)return null; return m.snapshots[String(keys[0]).padStart(2,'0')]}
+function snapshotByExact(month,day){let db=getDB(), m=db.months?.[month]; return m?.snapshots?.[String(day).padStart(2,'0')]||null}
+function compareRows(base,prevMonthSnap,yesterdaySnap){
+  let pMap=new Map((prevMonthSnap?.employees||[]).map(e=>[e.id,e]));
+  let yMap=new Map((yesterdaySnap?.employees||[]).map(e=>[e.id,e]));
+  return (base.employees||[]).map(e=>{let pm=pMap.get(e.id), yd=yMap.get(e.id); return {e,pm,yd,dtDelta:pm?e.dtqd-pm.dtqd:null,dtDeltaPct:pm&&pm.dtqd?((e.dtqd-pm.dtqd)/pm.dtqd*100):null,effDelta:pm?e.effPct-pm.effPct:null,totalDelta:pm?e.total-pm.total:null,dayDelta:yd?e.total-yd.total:null}})
+}
+function deltaCell(v,d=1,suffix=''){if(v==null||!isFinite(v))return '<span class="muted">Chưa có</span>'; let c=v>=0?'green':'red'; return `<b class="${c}">${v>=0?'+':''}${f(v,d)}${suffix}</b>`}
+function renderCompare(){
+  let base=currentSummaryFromData(); let day=base.day; let month=getMonthKey(); let prevMonth=monthShift(month,-1); let pm=bestSnapshot(prevMonth,day); let yd=day>1?snapshotByExact(month,day-1):null; let rows=compareRows(base,pm,yd).sort((a,b)=>(b.totalDelta??-999)-(a.totalDelta??-999));
+  let hasPm=!!pm, hasYd=!!yd;
+  document.getElementById('compare').innerHTML=`<div class="card pad"><h2>📈 So sánh data</h2><p class="muted">So sánh theo nhân viên giữa dữ liệu hiện tại, hôm qua và cùng kỳ tháng trước. Mỗi lần bấm <b>Lưu & chạy lại</b>, tool tự lưu snapshot theo ngày dữ liệu.</p><div class="grid g4"><div class="kpi"><small>Tháng hiện tại</small><b>${month}</b><small>Ngày ${String(day).padStart(2,'0')}</small></div><div class="kpi"><small>Cùng kỳ tháng trước</small><b>${prevMonth}</b><small>${hasPm?'Có dữ liệu ngày '+String(pm.day).padStart(2,'0'):'Chưa có dữ liệu'}</small></div><div class="kpi"><small>Hôm qua</small><b>${hasYd?'Có':'Chưa có'}</b><small>${hasYd?'Ngày '+String(yd.day).padStart(2,'0'):'Cần lưu snapshot ngày trước'}</small></div><div class="kpi"><small>Số snapshot tháng này</small><b>${Object.keys(getDB().months?.[month]?.snapshots||{}).length}</b></div></div></div><div class="card pad" style="margin-top:14px"><h2>Nhân viên so với cùng kỳ</h2><div class="table-wrap"><table><thead><tr><th>Nhân viên</th><th>Chuỗi</th><th class="num">DTQĐ hiện tại</th><th class="num">DTQĐ cùng kỳ</th><th class="num">+/- DT</th><th class="num">+/- DT%</th><th class="num">HQ hiện tại</th><th class="num">HQ cùng kỳ</th><th class="num">+/- HQ</th><th class="num">Điểm</th><th class="num">+/- điểm CK</th><th class="num">+/- hôm qua</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${r.e.name}</b><br><small class="muted">${r.e.id} • ${shortStoreName(r.e.store)}</small></td><td>${r.e.chain}</td><td class="num"><b>${f(r.e.dtqd,2)}</b></td><td class="num">${r.pm?f(r.pm.dtqd,2):'<span class="muted">-</span>'}</td><td class="num">${deltaCell(r.dtDelta,2)}</td><td class="num">${deltaCell(r.dtDeltaPct,1,'%')}</td><td class="num">${p(r.e.effPct,1)}</td><td class="num">${r.pm?p(r.pm.effPct,1):'<span class="muted">-</span>'}</td><td class="num">${deltaCell(r.effDelta,1,'%')}</td><td class="num"><b>${f(r.e.total,1)}</b></td><td class="num">${deltaCell(r.totalDelta,1)}</td><td class="num">${deltaCell(r.dayDelta,1)}</td></tr>`).join('')}</tbody></table></div></div>`
+}
+function loginRole(role){let pin=document.getElementById('pin_'+role)?.value||''; let hashes=getPinHash(); if(hashPin(pin)!==(hashes[role]>>>0)){toast('Sai mật khẩu '+ROLE_LABEL[role]);return} localStorage.setItem(TD_ROLE_KEY,role); STATE.active='dashboard'; renderAll(); toast('Đã đăng nhập quyền '+ROLE_LABEL[role])}
+function changeRolePin(role){
+  if(getRole()!=='admin'){toast('Chỉ Admin được đổi mật khẩu');return}
+  let a=document.getElementById('newpin_'+role)?.value||'';
+  let b=document.getElementById('newpin2_'+role)?.value||'';
+  if(a.length<3){toast('Mật khẩu mới cần tối thiểu 3 ký tự');return}
+  if(a!==b){toast('Mật khẩu xác nhận chưa khớp');return}
+  let hashes=getPinHash(); hashes[role]=hashPin(a); setPinHash(hashes);
+  document.getElementById('newpin_'+role).value=''; document.getElementById('newpin2_'+role).value='';
+  toast('Đã đổi mật khẩu '+ROLE_LABEL[role]);
+}
+function resetRolePins(){
+  if(getRole()!=='admin'){toast('Chỉ Admin được reset mật khẩu');return}
+  if(confirm('Reset mật khẩu Admin và QLY về mặc định?')){localStorage.removeItem(TD_PIN_HASH_KEY); toast('Đã reset mật khẩu mặc định')}
+}
+function logoutRole(){localStorage.setItem(TD_ROLE_KEY,'ql'); STATE.active='dashboard'; renderAll(); toast('Đã chuyển sang quyền QLY')}
+function saveRoleTabs(role){let cfg=getRoleCfg(); cfg[role]=[...document.querySelectorAll(`#tabcfg_${role} input:checked`)].map(i=>i.value); if(!cfg[role].includes('settings')) cfg[role].push('settings'); setRoleCfg(cfg); renderAll(); toast('Đã lưu cấu hình tab cho '+ROLE_LABEL[role])}
+function backupAll(){let blob=new Blob([JSON.stringify({db:getDB(),roleCfg:getRoleCfg(),role:getRole()},null,2)],{type:'application/json'}); let a=document.createElement('a'); a.download='thidua_pro_backup_'+Date.now()+'.json'; a.href=URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href)}
+function restoreAll(ev){let file=ev.target.files?.[0]; if(!file)return; let fr=new FileReader(); fr.onload=()=>{try{let o=JSON.parse(fr.result); if(o.db)setDB(o.db); if(o.roleCfg)setRoleCfg(o.roleCfg); if(o.role)localStorage.setItem(TD_ROLE_KEY,o.role); renderAll(); toast('Đã restore dữ liệu')}catch(e){toast('File restore không hợp lệ')}}; fr.readAsText(file)}
+function renderTabConfig(role){let cfg=getRoleCfg(); let allowed=new Set(cfg[role]||[]); return `<div id="tabcfg_${role}" class="checkgrid">${NAV.map(n=>`<label><input type="checkbox" value="${n[0]}" ${allowed.has(n[0])?'checked':''} ${n[0]==='settings'?'disabled checked':''}> ${n[1]}</label>`).join('')}</div><button class="btn primary" onclick="saveRoleTabs('${role}')">Lưu tab cho ${ROLE_LABEL[role]}</button>`}
+function renderSettings(){let role=getRole(), db=getDB(); let months=Object.keys(db.months||{}).sort().reverse(); document.getElementById('settings').innerHTML=`<div class="card pad"><h2>⚙️ Cài đặt & phân quyền</h2><p class="muted">Quyền hiện tại: <b>${ROLE_LABEL[role]}</b>. Mật khẩu được ẩn trên giao diện; Admin có thể đổi khi cần.</p><div class="grid g2"><div class="kpi"><small>Đăng nhập Admin</small><b>🔒 Mật khẩu Admin</b><input id="pin_admin" class="btn" type="password" placeholder="Nhập mật khẩu Admin" autocomplete="current-password" style="width:100%;margin-top:8px"><button class="btn primary" style="margin-top:8px" onclick="loginRole('admin')">Vào Admin</button></div><div class="kpi"><small>Đăng nhập QLY</small><b>🔒 Mật khẩu QLY</b><input id="pin_ql" class="btn" type="password" placeholder="Nhập mật khẩu QLY" autocomplete="current-password" style="width:100%;margin-top:8px"><button class="btn blue" style="margin-top:8px" onclick="loginRole('ql')">Vào QLY</button></div></div></div>${role==='admin'?`<div class="card pad" style="margin-top:14px"><h2>🔐 Đổi mật khẩu</h2><p class="muted">Chỉ Admin được đổi mật khẩu. Mật khẩu mới lưu trên trình duyệt của máy đang dùng.</p><div class="grid g2"><div class="kpi"><small>Đổi mật khẩu Admin</small><input id="newpin_admin" class="btn" type="password" placeholder="Mật khẩu Admin mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_admin" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn primary" style="margin-top:8px" onclick="changeRolePin('admin')">Lưu mật khẩu Admin</button></div><div class="kpi"><small>Đổi mật khẩu QLY</small><input id="newpin_ql" class="btn" type="password" placeholder="Mật khẩu QLY mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_ql" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn blue" style="margin-top:8px" onclick="changeRolePin('ql')">Lưu mật khẩu QLY</button></div></div><button class="btn red" style="margin-top:12px" onclick="resetRolePins()">Reset mật khẩu mặc định</button></div>`:''}<div class="grid g2" style="margin-top:14px"><div class="card pad"><h2>Ẩn/hiện tab quyền QLY</h2>${renderTabConfig('ql')}</div><div class="card pad"><h2>Ẩn/hiện tab quyền Admin</h2>${renderTabConfig('admin')}</div></div><div class="card pad" style="margin-top:14px"><h2>Phiên bản dữ liệu theo tháng</h2><div class="grid g3"><div class="kpi"><small>Tháng đang xem</small><b>${getMonthKey()}</b></div><div class="kpi"><small>Số tháng đã lưu</small><b>${months.length}</b></div><div class="kpi"><small>Snapshot tháng này</small><b>${Object.keys(db.months?.[getMonthKey()]?.snapshots||{}).length}</b></div></div><div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Tháng</th><th class="num">Số snapshot</th><th>Cập nhật cuối</th></tr></thead><tbody>${months.map(m=>`<tr><td><b>${m}</b></td><td class="num">${Object.keys(db.months[m].snapshots||{}).length}</td><td>${db.months[m].updatedAt?new Date(db.months[m].updatedAt).toLocaleString('vi-VN'):'-'}</td></tr>`).join('')}</tbody></table></div><div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" onclick="backupAll()">Backup toàn bộ</button><label class="btn blue">Restore <input type="file" accept=".json" onchange="restoreAll(event)" style="display:none"></label><button class="btn red" onclick="if(confirm('Xóa toàn bộ dữ liệu lịch sử?')){localStorage.removeItem(TD_DB_KEY);renderAll()}">Xóa lịch sử</button></div></div>`}
+// Override navigation to apply role-based visibility.
+renderNav=function(){let nav=visibleNav(); if(!nav.find(n=>n[0]===STATE.active)){STATE.active=nav[0]?.[0]||'dashboard'} document.getElementById('nav').innerHTML=nav.map(n=>`<button class="${n[0]===STATE.active?'active':''}" onclick="show('${n[0]}')">${n[1]}</button>`).join('')+`<div class="group">Quyền: ${ROLE_LABEL[getRole()]}</div>`}
+show=function(id){let nav=visibleNav(); if(!nav.find(n=>n[0]===id)) id=nav[0]?.[0]||'dashboard'; STATE.active=id; document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id)); renderNav(); if(id==='detailEmp')renderDetail(); if(id==='compare')renderCompare(); if(id==='settings')renderSettings()}
+// Override save import to auto snapshot.
+saveImport=function(){let r={}; document.querySelectorAll('[id^="inp_"]').forEach(t=>r[t.id.replace('inp_','')]=t.value); saveRaw(r); renderAll(); saveDailySnapshot(); renderAll(); show('dashboard'); toast('Đã lưu dữ liệu, tạo snapshot ngày '+String(dayInfo().d).padStart(2,'0'))}
+// Override render all to include compare/settings.
+renderAll=function(){rebuild(); updateScopeOptions(); renderNav(); renderTotalComp(); renderDashboard(); document.getElementById('pushTZ').innerHTML=push('Topzone'); document.getElementById('pushTGDD').innerHTML=push('TGDĐ'); renderStore(); renderStoreComp(); renderRankEmp(); renderFull(); renderDetail(); renderIncome(); renderRule(); renderAI(); renderImport(); renderCompare(); renderSettings(); show(STATE.active)}
 renderAll();
 </script>
 </body></html>
