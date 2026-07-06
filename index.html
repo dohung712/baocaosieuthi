@@ -453,5 +453,232 @@ saveImport=function(){let r={}; document.querySelectorAll('[id^="inp_"]').forEac
 // Override render all to include compare/settings.
 renderAll=function(){rebuild(); updateScopeOptions(); renderNav(); renderTotalComp(); renderDashboard(); document.getElementById('pushTZ').innerHTML=push('Topzone'); document.getElementById('pushTGDD').innerHTML=push('TGDĐ'); renderStore(); renderStoreComp(); renderRankEmp(); renderFull(); renderDetail(); renderIncome(); renderRule(); renderAI(); renderImport(); renderCompare(); renderSettings(); show(STATE.active)}
 renderAll();
+
+
+/* ================= V6.3 ROLE LOGIN PATCH =================
+   - Không tự vào Admin khi mở tool.
+   - Mở tool sẽ hiện màn hình đăng nhập.
+   - Nhập mật khẩu Admin hoặc QLY thì vào đúng quyền đó.
+   - Có nút Đăng xuất.
+   - Chỉ Admin mới thấy Cài đặt và được ẩn/hiện tab.
+============================================================ */
+(function injectRoleLoginStyle(){
+  const css=`
+  .login-wall{min-height:calc(100vh - 120px);display:grid;place-items:center;padding:20px}
+  .login-card{width:min(920px,96vw);background:linear-gradient(180deg,#10213a,#0b1728);border:1px solid var(--line);border-radius:22px;box-shadow:0 28px 70px rgba(0,0,0,.38);padding:24px}
+  .login-title{display:flex;gap:14px;align-items:center;margin-bottom:18px}.login-title .ico{width:58px;height:58px;border-radius:18px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:grid;place-items:center;font-size:30px}.login-title h1{margin:0;font-size:30px}.login-title p{margin:4px 0 0;color:var(--muted);font-weight:800}
+  .login-options{display:grid;grid-template-columns:1fr 1fr;gap:14px}.login-box{background:#0b1b30;border:1px solid var(--line);border-radius:17px;padding:18px}.login-box h2{margin:0 0 8px}.login-box input{width:100%;margin-top:10px}.login-box button{width:100%;margin-top:10px}.role-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:8px 11px;background:#0d1b2f;color:#dbeafe;font-weight:900}.role-chip.admin{background:#052e1d;color:#86efac}.role-chip.ql{background:#1e1b4b;color:#c4b5fd}.logout-mini{padding:8px 10px!important}.nav-login-note{padding:12px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-weight:800;margin-top:8px}.admin-only-note{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.08);color:#fde68a;border-radius:12px;padding:10px;margin:10px 0;font-weight:800}
+  @media(max-width:900px){.login-options{grid-template-columns:1fr}.login-title h1{font-size:24px}}
+  `;
+  const st=document.createElement('style'); st.textContent=css; document.head.appendChild(st);
+})();
+
+const TD_SESSION_ROLE_KEY='td_v6_session_role';
+// Bỏ quyền lưu cũ để mỗi lần mở file phải đăng nhập lại theo đúng mật khẩu nhập vào.
+try{ localStorage.removeItem(TD_ROLE_KEY); }catch(e){}
+
+getRole=function(){return sessionStorage.getItem(TD_SESSION_ROLE_KEY)||''}
+function isLoggedIn(){return !!getRole()}
+
+visibleNav=function(){
+  const role=getRole();
+  if(!role) return [['settings','🔐 Đăng nhập']];
+  let cfg=getRoleCfg();
+  let allowed=cfg[role]||DEFAULT_ROLE_CFG[role]||DEFAULT_ROLE_CFG.ql;
+  // Chỉ Admin được thấy Cài đặt. QLY không được thấy tab này dù config cũ có lưu.
+  if(role!=='admin') allowed=allowed.filter(x=>x!=='settings' && x!=='import');
+  return NAV.filter(n=>allowed.includes(n[0]) || (role==='admin' && n[0]==='settings'));
+}
+
+loginRole=function(role){
+  const pin=document.getElementById('pin_'+role)?.value||'';
+  const hashes=getPinHash();
+  if(hashPin(pin)!==(hashes[role]>>>0)){toast('Sai mật khẩu '+ROLE_LABEL[role]);return}
+  sessionStorage.setItem(TD_SESSION_ROLE_KEY,role);
+  STATE.active='dashboard';
+  renderAll();
+  toast('Đã đăng nhập quyền '+ROLE_LABEL[role]);
+}
+
+logoutRole=function(){
+  sessionStorage.removeItem(TD_SESSION_ROLE_KEY);
+  STATE.active='settings';
+  renderAll();
+  toast('Đã đăng xuất');
+}
+
+function updateRoleBar(){
+  const actions=document.querySelector('.top .actions');
+  if(!actions) return;
+  let bar=document.getElementById('roleBar');
+  if(!bar){
+    bar=document.createElement('span');
+    bar.id='roleBar';
+    bar.style.display='inline-flex';
+    bar.style.gap='8px';
+    bar.style.alignItems='center';
+    actions.insertBefore(bar,actions.firstChild);
+  }
+  const role=getRole();
+  if(!role){
+    bar.innerHTML=`<span class="role-chip">🔐 Chưa đăng nhập</span>`;
+  }else{
+    const cls=role==='admin'?'admin':'ql';
+    bar.innerHTML=`<span class="role-chip ${cls}">🔓 Quyền: ${ROLE_LABEL[role]}</span><button class="btn red logout-mini" onclick="logoutRole()">Đăng xuất</button>`;
+  }
+}
+
+renderNav=function(){
+  const nav=visibleNav();
+  if(!isLoggedIn()) STATE.active='settings';
+  if(isLoggedIn() && !nav.find(n=>n[0]===STATE.active)) STATE.active=nav[0]?.[0]||'dashboard';
+  document.getElementById('nav').innerHTML=nav.map(n=>`<button class="${n[0]===STATE.active?'active':''}" onclick="show('${n[0]}')">${n[1]}</button>`).join('') + (isLoggedIn()?`<div class="group">Quyền: ${ROLE_LABEL[getRole()]}</div><button onclick="logoutRole()">🚪 Đăng xuất</button>`:`<div class="nav-login-note">Nhập mật khẩu Admin hoặc QLY để vào tool.</div>`);
+  updateRoleBar();
+}
+
+show=function(id){
+  const nav=visibleNav();
+  if(!isLoggedIn()) id='settings';
+  else if(!nav.find(n=>n[0]===id)) id=nav[0]?.[0]||'dashboard';
+  STATE.active=id;
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id===id));
+  renderNav();
+  if(id==='detailEmp')renderDetail();
+  if(id==='compare')renderCompare();
+  if(id==='settings')renderSettings();
+}
+
+renderTabConfig=function(role){
+  if(getRole()!=='admin') return `<div class="admin-only-note">Chỉ Admin mới được ẩn/hiện tab.</div>`;
+  let cfg=getRoleCfg();
+  let allowed=new Set(cfg[role]||[]);
+  const canCheck=(tab)=> role==='admin' ? true : !['settings','import'].includes(tab);
+  return `<div id="tabcfg_${role}" class="checkgrid">${NAV.map(n=>{
+    const locked=(role==='admin' && n[0]==='settings') || !canCheck(n[0]);
+    const checked=(role==='admin' && n[0]==='settings') || (allowed.has(n[0]) && canCheck(n[0]));
+    return `<label><input type="checkbox" value="${n[0]}" ${checked?'checked':''} ${locked?'disabled':''}> ${n[1]} ${locked&&role==='ql'?'<small class="muted">(Admin only)</small>':''}</label>`;
+  }).join('')}</div><button class="btn primary" onclick="saveRoleTabs('${role}')">Lưu tab cho ${ROLE_LABEL[role]}</button>`;
+}
+
+saveRoleTabs=function(role){
+  if(getRole()!=='admin'){toast('Chỉ Admin được ẩn/hiện tab');return}
+  let cfg=getRoleCfg();
+  let list=[...document.querySelectorAll(`#tabcfg_${role} input:checked`)].map(i=>i.value);
+  if(role==='admin' && !list.includes('settings')) list.push('settings');
+  if(role==='ql') list=list.filter(x=>!['settings','import'].includes(x));
+  cfg[role]=list;
+  setRoleCfg(cfg);
+  renderAll();
+  toast('Đã lưu cấu hình tab cho '+ROLE_LABEL[role]);
+}
+
+renderSettings=function(){
+  const role=getRole();
+  const el=document.getElementById('settings');
+  if(!role){
+    el.innerHTML=`<div class="login-wall"><div class="login-card"><div class="login-title"><div class="ico">🏆</div><div><h1>Đăng nhập Tool Thi Đua Pro</h1><p>Nhập mật khẩu quyền nào thì vào đúng quyền đó. Mật khẩu không hiển thị trên màn hình.</p></div></div><div class="login-options"><div class="login-box"><h2>👑 Admin</h2><p class="muted">Toàn quyền: Import, Cài đặt, ẩn/hiện tab, đổi mật khẩu.</p><input id="pin_admin" class="btn" type="password" placeholder="Nhập mật khẩu Admin" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginRole('admin')"><button class="btn primary" onclick="loginRole('admin')">Vào quyền Admin</button></div><div class="login-box"><h2>👨‍💼 QLY</h2><p class="muted">Chỉ xem các tab được Admin cho phép. Không có quyền ẩn/hiện tab.</p><input id="pin_ql" class="btn" type="password" placeholder="Nhập mật khẩu QLY" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginRole('ql')"><button class="btn blue" onclick="loginRole('ql')">Vào quyền QLY</button></div></div></div></div>`;
+    return;
+  }
+  if(role!=='admin'){
+    el.innerHTML=`<div class="card pad"><h2>🔒 Cài đặt bị khóa</h2><p class="muted">Bạn đang ở quyền <b>${ROLE_LABEL[role]}</b>. Chỉ Admin mới có quyền Cài đặt, đổi mật khẩu và ẩn/hiện tab.</p><button class="btn red" onclick="logoutRole()">Đăng xuất</button></div>`;
+    return;
+  }
+  let db=getDB(); let months=Object.keys(db.months||{}).sort().reverse();
+  el.innerHTML=`<div class="card pad"><h2>⚙️ Cài đặt & phân quyền</h2><p class="muted">Quyền hiện tại: <b>Admin</b>. Mật khẩu được ẩn trên giao diện; Admin có thể đổi khi cần.</p><div class="grid g2"><div class="kpi"><small>Đăng nhập lại Admin</small><b>🔒 Mật khẩu Admin</b><input id="pin_admin" class="btn" type="password" placeholder="Nhập mật khẩu Admin" autocomplete="current-password" style="width:100%;margin-top:8px"><button class="btn primary" style="margin-top:8px" onclick="loginRole('admin')">Vào Admin</button></div><div class="kpi"><small>Chuyển sang QLY</small><b>🔒 Mật khẩu QLY</b><input id="pin_ql" class="btn" type="password" placeholder="Nhập mật khẩu QLY" autocomplete="current-password" style="width:100%;margin-top:8px"><button class="btn blue" style="margin-top:8px" onclick="loginRole('ql')">Vào QLY</button></div></div></div><div class="card pad" style="margin-top:14px"><h2>🔐 Đổi mật khẩu</h2><p class="muted">Chỉ Admin được đổi mật khẩu. Mật khẩu mới lưu trên trình duyệt của máy đang dùng.</p><div class="grid g2"><div class="kpi"><small>Đổi mật khẩu Admin</small><input id="newpin_admin" class="btn" type="password" placeholder="Mật khẩu Admin mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_admin" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn primary" style="margin-top:8px" onclick="changeRolePin('admin')">Lưu mật khẩu Admin</button></div><div class="kpi"><small>Đổi mật khẩu QLY</small><input id="newpin_ql" class="btn" type="password" placeholder="Mật khẩu QLY mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_ql" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn blue" style="margin-top:8px" onclick="changeRolePin('ql')">Lưu mật khẩu QLY</button></div></div><button class="btn red" style="margin-top:12px" onclick="resetRolePins()">Reset mật khẩu mặc định</button></div><div class="grid g2" style="margin-top:14px"><div class="card pad"><h2>Ẩn/hiện tab quyền QLY</h2>${renderTabConfig('ql')}</div><div class="card pad"><h2>Ẩn/hiện tab quyền Admin</h2>${renderTabConfig('admin')}</div></div><div class="card pad" style="margin-top:14px"><h2>Phiên bản dữ liệu theo tháng</h2><div class="grid g3"><div class="kpi"><small>Tháng đang xem</small><b>${getMonthKey()}</b></div><div class="kpi"><small>Số tháng đã lưu</small><b>${months.length}</b></div><div class="kpi"><small>Snapshot tháng này</small><b>${Object.keys(db.months?.[getMonthKey()]?.snapshots||{}).length}</b></div></div><div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Tháng</th><th class="num">Số snapshot</th><th>Cập nhật cuối</th></tr></thead><tbody>${months.map(m=>`<tr><td><b>${m}</b></td><td class="num">${Object.keys(db.months[m].snapshots||{}).length}</td><td>${db.months[m].updatedAt?new Date(db.months[m].updatedAt).toLocaleString('vi-VN'):'-'}</td></tr>`).join('')}</tbody></table></div><div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" onclick="backupAll()">Backup toàn bộ</button><label class="btn blue">Restore <input type="file" accept=".json" onchange="restoreAll(event)" style="display:none"></label><button class="btn red" onclick="if(confirm('Xóa toàn bộ dữ liệu lịch sử?')){localStorage.removeItem(TD_DB_KEY);renderAll()}">Xóa lịch sử</button></div></div>`;
+}
+
+const __baseRenderAllV63=renderAll;
+renderAll=function(){
+  if(!isLoggedIn()){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.id==='settings'));
+    renderNav();
+    renderSettings();
+    updateRoleBar();
+    return;
+  }
+  __baseRenderAllV63();
+  updateRoleBar();
+}
+renderAll();
+
 </script>
+
+<script>
+/* V6.2 Single PIN Login Override
+   - One password box only
+   - Password decides role automatically
+   - Wrong password cannot enter
+   - Only Admin can open Settings / hide tabs
+*/
+(function(){
+  function byId(id){return document.getElementById(id)}
+  window.loginBySinglePin=function(){
+    const pin=(byId('single_pin')?.value||'').trim();
+    const hashes=getPinHash();
+    let role=null;
+    if(hashPin(pin)===(hashes.admin>>>0)) role='admin';
+    else if(hashPin(pin)===(hashes.ql>>>0)) role='ql';
+    if(!role){
+      toast('Sai mật khẩu. Không thể vào tool.');
+      const input=byId('single_pin');
+      if(input){input.value=''; input.focus(); input.style.borderColor='#ef4444'; setTimeout(()=>input.style.borderColor='',900)}
+      return;
+    }
+    sessionStorage.setItem(TD_SESSION_ROLE_KEY,role);
+    STATE.active='dashboard';
+    renderAll();
+    toast('Đã đăng nhập quyền '+ROLE_LABEL[role]);
+  };
+
+  // Replace login page with one input only.
+  const oldRenderSettings=window.renderSettings;
+  window.renderSettings=function(){
+    const el=byId('settings');
+    if(!el) return;
+    const role=getRole();
+    const db=getDB();
+    const months=Object.keys(db.months||{}).sort().reverse();
+    if(!role){
+      el.innerHTML=`
+      <div class="login-wall">
+        <div class="login-card" style="max-width:620px">
+          <div class="login-title">
+            <div class="ico">🔐</div>
+            <div>
+              <h1>Đăng nhập Tool Thi Đua Pro</h1>
+              <p>Nhập mật khẩu. Hệ thống tự nhận quyền Admin hoặc QLY.</p>
+            </div>
+          </div>
+          <div class="login-box">
+            <h2>Nhập mật khẩu</h2>
+            <p class="muted">Sai mật khẩu sẽ không vào được tool.</p>
+            <input id="single_pin" class="btn" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password" autofocus onkeydown="if(event.key==='Enter')loginBySinglePin()">
+            <button class="btn primary" onclick="loginBySinglePin()">Vào tool</button>
+          </div>
+        </div>
+      </div>`;
+      setTimeout(()=>byId('single_pin')?.focus(),50);
+      return;
+    }
+    if(role!=='admin'){
+      el.innerHTML=`<div class="card pad"><h2>🔒 Cài đặt bị khóa</h2><p class="muted">Bạn đang ở quyền <b>${ROLE_LABEL[role]}</b>. Chỉ Admin mới có quyền Cài đặt, đổi mật khẩu và ẩn/hiện tab.</p><button class="btn red" onclick="logoutRole()">Đăng xuất</button></div>`;
+      return;
+    }
+    el.innerHTML=`<div class="card pad"><h2>⚙️ Cài đặt & phân quyền</h2><p class="muted">Quyền hiện tại: <b>Admin</b>. Chỉ Admin được ẩn/hiện tab và đổi mật khẩu.</p></div><div class="card pad" style="margin-top:14px"><h2>🔐 Đổi mật khẩu</h2><p class="muted">Mật khẩu mới lưu trên trình duyệt của máy đang dùng.</p><div class="grid g2"><div class="kpi"><small>Đổi mật khẩu Admin</small><input id="newpin_admin" class="btn" type="password" placeholder="Mật khẩu Admin mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_admin" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn primary" style="margin-top:8px" onclick="changeRolePin('admin')">Lưu mật khẩu Admin</button></div><div class="kpi"><small>Đổi mật khẩu QLY</small><input id="newpin_ql" class="btn" type="password" placeholder="Mật khẩu QLY mới" autocomplete="new-password" style="width:100%;margin-top:8px"><input id="newpin2_ql" class="btn" type="password" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" style="width:100%;margin-top:8px"><button class="btn blue" style="margin-top:8px" onclick="changeRolePin('ql')">Lưu mật khẩu QLY</button></div></div><button class="btn red" style="margin-top:12px" onclick="resetRolePins()">Reset mật khẩu mặc định</button></div><div class="grid g2" style="margin-top:14px"><div class="card pad"><h2>Ẩn/hiện tab quyền QLY</h2>${renderTabConfig('ql')}</div><div class="card pad"><h2>Ẩn/hiện tab quyền Admin</h2>${renderTabConfig('admin')}</div></div><div class="card pad" style="margin-top:14px"><h2>Phiên bản dữ liệu theo tháng</h2><div class="grid g3"><div class="kpi"><small>Tháng đang xem</small><b>${getMonthKey()}</b></div><div class="kpi"><small>Số tháng đã lưu</small><b>${months.length}</b></div><div class="kpi"><small>Snapshot tháng này</small><b>${Object.keys(db.months?.[getMonthKey()]?.snapshots||{}).length}</b></div></div><div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Tháng</th><th class="num">Số snapshot</th><th>Cập nhật cuối</th></tr></thead><tbody>${months.map(m=>`<tr><td><b>${m}</b></td><td class="num">${Object.keys(db.months[m].snapshots||{}).length}</td><td>${db.months[m].updatedAt?new Date(db.months[m].updatedAt).toLocaleString('vi-VN'):'-'}</td></tr>`).join('')}</tbody></table></div><div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" onclick="backupAll()">Backup toàn bộ</button><label class="btn blue">Restore <input type="file" accept=".json" onchange="restoreAll(event)" style="display:none"></label><button class="btn red" onclick="if(confirm('Xóa toàn bộ dữ liệu lịch sử?')){localStorage.removeItem(TD_DB_KEY);renderAll()}">Xóa lịch sử</button></div></div>`;
+  };
+
+  // Make sure menu does not show normal tabs until logged in.
+  const oldRenderNav=window.renderNav;
+  window.renderNav=function(){
+    const nav=visibleNav();
+    const navEl=byId('nav');
+    if(!navEl) return;
+    navEl.innerHTML=nav.map(n=>`<button class="${n[0]===STATE.active?'active':''}" onclick="show('${n[0]}')">${n[1]}</button>`).join('') + (isLoggedIn()?`<div class="group">Quyền: ${ROLE_LABEL[getRole()]}</div><button onclick="logoutRole()">🚪 Đăng xuất</button>`:`<div class="nav-login-note">Nhập mật khẩu để vào tool.</div>`);
+  };
+
+  // Re-render with new login UI after this override loads.
+  if(typeof renderAll==='function') renderAll();
+})();
+</script>
+
 </body></html>
