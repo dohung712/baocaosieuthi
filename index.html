@@ -645,8 +645,8 @@ renderAll();
           <div class="login-title">
             <div class="ico">🔐</div>
             <div>
-              <h1>Đăng nhập Tool Thi Đua Pro</h1>
-              <p>Nhập mật khẩu. Hệ thống tự nhận quyền Admin hoặc QLY.</p>
+              <h1>Topzone Đà Nẵng</h1>
+              <p>Hệ thống Quản lý Thi đua & KPI</p>
             </div>
           </div>
           <div class="login-box">
@@ -677,6 +677,63 @@ renderAll();
   };
 
   // Re-render with new login UI after this override loads.
+  if(typeof renderAll==='function') renderAll();
+})();
+</script>
+
+
+<script>
+/* V6.4 QLY Import Permission Patch
+   - QLY can access Import dữ liệu.
+   - Only Admin can access Settings and hide/show tabs.
+   - Admin can still hide Import for QLY from Settings if needed.
+*/
+(function(){
+  const MIG_KEY='td_v6_migrate_ql_import_v1';
+  try{
+    if(!localStorage.getItem(MIG_KEY)){
+      const cfg=getRoleCfg();
+      cfg.ql=Array.from(new Set([...(cfg.ql||[]),'import']));
+      cfg.ql=cfg.ql.filter(x=>x!=='settings');
+      setRoleCfg(cfg);
+      localStorage.setItem(MIG_KEY,'1');
+    }
+  }catch(e){}
+
+  window.visibleNav=function(){
+    const role=getRole();
+    if(!role) return [['settings','🔐 Đăng nhập']];
+    const cfg=getRoleCfg();
+    let allowed=[...(cfg[role]||DEFAULT_ROLE_CFG[role]||DEFAULT_ROLE_CFG.ql||[])];
+    if(role!=='admin') allowed=allowed.filter(x=>x!=='settings');
+    return NAV.filter(n=>allowed.includes(n[0]) || (role==='admin' && n[0]==='settings'));
+  };
+
+  window.renderTabConfig=function(role){
+    if(getRole()!=='admin') return `<div class="admin-only-note">Chỉ Admin mới được ẩn/hiện tab.</div>`;
+    const cfg=getRoleCfg();
+    const allowed=new Set(cfg[role]||[]);
+    return `<div id="tabcfg_${role}" class="checkgrid">${NAV.map(n=>{
+      const isSettings=n[0]==='settings';
+      const locked=(role==='admin' && isSettings) || (role==='ql' && isSettings);
+      const checked=(role==='admin' && isSettings) || (allowed.has(n[0]) && !(role==='ql' && isSettings));
+      return `<label><input type="checkbox" value="${n[0]}" ${checked?'checked':''} ${locked?'disabled':''}> ${n[1]} ${role==='ql'&&isSettings?'<small class="muted">(Admin only)</small>':''}</label>`;
+    }).join('')}</div><button class="btn primary" onclick="saveRoleTabs('${role}')">Lưu tab cho ${ROLE_LABEL[role]}</button>`;
+  };
+
+  window.saveRoleTabs=function(role){
+    if(getRole()!=='admin'){toast('Chỉ Admin được ẩn/hiện tab');return}
+    const cfg=getRoleCfg();
+    let list=[...document.querySelectorAll(`#tabcfg_${role} input:checked`)].map(i=>i.value);
+    if(role==='admin' && !list.includes('settings')) list.push('settings');
+    if(role==='ql') list=list.filter(x=>x!=='settings');
+    cfg[role]=Array.from(new Set(list));
+    setRoleCfg(cfg);
+    renderAll();
+    toast('Đã lưu cấu hình tab cho '+ROLE_LABEL[role]);
+  };
+
+  // Make top menu refresh immediately after patch.
   if(typeof renderAll==='function') renderAll();
 })();
 </script>
